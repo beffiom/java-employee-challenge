@@ -3,9 +3,132 @@ plugins {
 }
 
 dependencies {
+    implementation 'org.springframework.retry:spring-retry'
+    implementation 'org.springframework:spring-aspects'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
 springBoot {
     mainClass = 'com.reliaquest.api.ApiApplication'
+}
+
+// Mock server management tasks
+def mockServerProcess = null
+def mockServerPort = 8112
+def mockServerUrl = "http://localhost:${mockServerPort}/api/v1/employee"
+
+tasks.register('startMockServer') {
+    group = 'verification'
+    description = 'Starts the mock server for integration testing'
+    
+    doLast {
+        if (mockServerProcess?.alive) {
+            logger.info('Mock server is already running')
+            return
+        }
+        
+        logger.info('Starting mock server...')
+        
+        // Start the server module in the background
+        mockServerProcess = new ProcessBuilder()
+            .command('./gradlew', 'server:bootRun')
+            .directory(project.rootDir)
+            .redirectErrorStream(true)
+            .start()
+        
+        // Wait for the server to be ready
+        def maxAttempts = 30
+        def attempt = 0
+        def serverReady = false
+        
+        while (attempt < maxAttempts && !serverReady) {
+            try {
+                Thread.sleep(1000)
+                def connection = new URL(mockServerUrl).openConnection()
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                connection.requestMethod = 'GET'
+                
+                if (connection.responseCode == 200) {
+                    serverReady = true
+                    logger.info("Mock server is ready at ${mockServerUrl}")
+                } else {
+                    attempt++
+                }
+            } catch (Exception e) {
+                attempt++
+                logger.debug("Attempt ${attempt}: Mock server not ready yet")
+            }
+        }
+        
+        if (!serverReady) {
+            throw new GradleException("Mock server failed to start within ${maxAttempts} seconds")
+        }
+        
+        // Add shutdown hook to clean up the process
+        Runtime.runtime.addShutdownHook {
+            if (mockServerProcess?.alive) {
+                logger.info('Shutting down mock server...')
+                mockServerProcess.destroy()
+                mockServerProcess.waitFor()
+            }
+        }
+    }
+}
+
+tasks.register('stopMockServer') {
+    group = 'verification'
+    description = 'Stops the mock server'
+    
+    doLast {
+        if (mockServerProcess?.alive) {
+            logger.info('Stopping mock server...')
+            mockServerProcess.destroy()
+            mockServerProcess.waitFor()
+            mockServerProcess = null
+            logger.info('Mock server stopped')
+        } else {
+            logger.info('Mock server is not running')
+        }
+    }
+}
+
+// Integration test task that manages mock server lifecycle
+tasks.register('integrationTest', Test) {
+    group = 'verification'
+    description = 'Runs integration tests with mock server'
+    
+    useJUnitPlatform()
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    
+    // Only run integration tests
+    include '**/integration/**'
+    
+    systemProperty 'mock.server.url', mockServerUrl
+    
+    dependsOn startMockServer
+    finalizedBy stopMockServer
+}
+
+// Separate unit tests (excluding integration tests)
+tasks.register('unitTest', Test) {
+    group = 'verification'
+    description = 'Runs unit tests only (excludes integration tests)'
+    
+    useJUnitPlatform()
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    
+    // Exclude integration tests
+    exclude '**/integration/**'
+}
+
+// Configure the main test task to run both unit and integration tests
+test {
+    dependsOn unitTest
+    dependsOn integrationTest
+    
+    // Run unit tests first, then integration tests
+    integrationTest.mustRunAfter unitTest
 }
