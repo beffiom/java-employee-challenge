@@ -55,13 +55,11 @@ public class EmployeeService {
     public Employee getEmployeeById(String id) {
         log.info("Fetching employee with id: {}", id);
 
-        // Input validation - all invalid employee IDs return 400
         if (id == null || id.trim().isEmpty()) {
             log.warn("Empty or null employee ID provided");
             throw new HttpClientErrorException(HttpStatus.BAD_REQUEST);
         }
 
-        // Get all employees and find the one with matching ID
         List<Employee> allEmployees = getAllEmployees();
 
         Employee employee = allEmployees.stream()
@@ -112,7 +110,6 @@ public class EmployeeService {
     public String deleteEmployeeById(String id) {
         log.info("Deleting employee with id: {}", id);
 
-        // First get employee to find their name (since mock server deletes by name)
         Employee employee = getEmployeeById(id);
         String employeeName = employee.getName();
 
@@ -178,18 +175,18 @@ public class EmployeeService {
     @Recover
     public List<Employee> recoverGetAllEmployees(HttpClientErrorException.TooManyRequests ex) {
         log.error("Max retries exceeded for getAllEmployees due to rate limiting");
-        throw ex; // Let GlobalExceptionHandler handle the response
+        throw ex;
     }
 
     @Recover
     public Employee recoverCreateEmployee(HttpClientErrorException.TooManyRequests ex, CreateEmployeeRequest request) {
         log.error("Max retries exceeded for createEmployee({}) due to rate limiting", request.getName());
-        throw ex; // Let GlobalExceptionHandler handle the response
+        throw ex;
     }
 
     @Recover
     public String recoverDeleteEmployeeById(HttpClientErrorException.TooManyRequests ex, String id) {
         log.error("Max retries exceeded for deleteEmployeeById({}) due to rate limiting", id);
-        throw ex; // Let GlobalExceptionHandler handle the response
+        throw ex;
     }
 }
